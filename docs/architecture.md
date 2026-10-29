@@ -14,6 +14,8 @@ Repository (read-only scan)
   -> human-reviewed result
 ```
 
+Separate offline utilities consume completed reports for a fail-closed PR gate summary and measure repeated local scans. They do not publish GitHub comments or change repository files.
+
 ## Component boundaries
 
 - **CLI:** argument parsing, output, help, and version display. Model consent prompts are planned but no model calls are implemented.
@@ -24,6 +26,8 @@ Repository (read-only scan)
 - **Finding output:** stable per-location 64-bit FNV-1a IDs from rule and location metadata, engine/rule versions, evidence roles, and limitations. IDs are non-cryptographic and can theoretically collide.
 - **AI client:** opt-in Nebius Token Factory OpenAI-compatible explanation request. It sends a single selected finding after interactive confirmation; source files and `.env` values are excluded. Endpoint/model defaults are documented in `ai-policy.md`; the API key is read from the environment and never embedded in source.
 - **Patch validator (planned):** disposable directory, patch path restrictions, command allowlist supplied by user, timeout/output bounds, rescan. Treat this as risk reduction, not a hardened hostile-code sandbox.
+- **PR simulation:** `pr-check` creates a local gate conclusion and Markdown text from a version 1 report; it has no GitHub credentials and performs no network writes.
+- **Benchmark:** `benchmark` measures local process wall time and supported-file throughput on the supplied tree; it emits no benchmark claim until run on a named, reproducible machine/corpus.
 
 ## Initial rule candidates
 
@@ -47,8 +51,9 @@ Each rule needs positive, negative, and edge-case fixtures before being called s
 
 ## Future interfaces
 
-The CLI and JSON contract remain the scanner interface. `secutron serve` hosts the browser UI and a loopback-only authenticated `/api/scan` route that invokes the same CLI executable with an argument vector. It has no persistence or tenancy, and the browser does not send reports to an external server. WebSocket streaming remains future work.
+The CLI and JSON contract remain the scanner interface. `secutron serve` hosts the browser UI and an authenticated `/api/scan` route that invokes the same CLI executable with an argument vector. It binds to loopback by default. An explicit `--public-origin` is required for non-loopback binds, and it must be a loopback origin pinned to the same port; Compose uses this with a host port published only on `127.0.0.1`. It has no persistence or tenancy, and the browser does not send reports to an external server. WebSocket streaming remains future work.
 
 ## Current input scope
 
 Python source files with case-insensitive `.py` extensions are parsed with Tree-sitter. `.env` and `.env.*` names are matched case-insensitively and handled by a separate line-based local secret check; they are not parsed as Python or sent to a model. Other configuration formats are not scanned yet.
+

@@ -16,6 +16,8 @@ SecuTron is an evidence-first local security scanner. The Rust CLI parses Python
 - `PY.PATH.UNTRUSTED` recognizes direct request markers or simple request-derived locals in built-in `open()` positional or `file=` path arguments, and in a method named `open`'s receiver or positional/`path=`/`file=` arguments. Method/library identity and path containment are not evaluated.
 - Emits JSON and SARIF 2.1.0 with sorted findings/errors, rule metadata, and repository-relative paths.
 - `secutron rules` prints the current supported patterns and their main limitations.
+- `secutron pr-check <scan-report.json> [--fail-on high]` makes a fail-closed pull-request gate decision from a completed SecuTron report and emits JSON with a Markdown summary. Incomplete scans return exit code 3; qualifying findings return 1.
+- `secutron benchmark <path> [--runs 1..10]` measures repeated scan wall time and reports median files/sec plus non-empty supported source lines/sec. The measurement includes process startup and does not label non-empty lines as logical LOC.
 - `secutron explain <scan-report.json> <finding-id>` offers an opt-in Nebius/Nemotron explanation for one finding. It displays the destination and payload categories and requires interactive confirmation; it sends only that finding's metadata/evidence, never source files or `.env` values. Set `NEBIUS_API_KEY`; optionally set `SECUTRON_API_BASE` and `SECUTRON_MODEL`. The scan command itself remains offline.
 - Text findings include the rule message, heuristic confidence, sanitized evidence labels, and limitations; source lines and detected secret values are not printed.
 
@@ -35,6 +37,8 @@ cargo run -- scan . --format json
 cargo run -- scan . --format sarif
 cargo run -- rules
 cargo run -- explain scan.json <finding-id>
+cargo run -- pr-check scan.json --fail-on high
+cargo run -- benchmark fixtures/vulnerable-shop/vulnerable --runs 5
 cargo run -- serve
 cargo test --locked
 ```
@@ -46,6 +50,12 @@ Exit codes: `0` completed with no findings; `1` completed with findings; `2` inv
 Run `cargo run -- serve`, then open the loopback URL printed by SecuTron and enter the one-time token printed in the terminal. The dashboard's **Run a local scan** panel calls the authenticated loopback API; enter a repository folder on the machine running SecuTron. The token stays in page memory and reports are not persisted by the server. The page can also be opened directly as [`web/index.html`](web/index.html) to import saved JSON reports. Imported or live reports offer JSON download and a CLI explanation command template; the browser never contacts the AI provider.
 
 The initial CLI integration fixtures are in [`fixtures/vulnerable-shop/`](fixtures/vulnerable-shop/). The `vulnerable/` examples are intentionally unsafe scanner inputs, not a runnable or deployable shop application.
+
+## Docker Compose
+
+With Docker Compose installed, run `docker compose up --build` and open `http://127.0.0.1:8765`. The image runs as a non-root user with a read-only filesystem and read-only repository mount; the host port is loopback-only. The mounted repository is available to the dashboard scanner as `/workspace`. Use `docker compose logs secutron` to read the one-time API token. To scan a different directory, set `SECUTRON_SCAN_PATH` before launching Compose (on Windows, use a path such as `C:/Users/you/projects/my-app`). Stop the service with `docker compose down`.
+
+The separate Vercel deployment is a static report viewer. It supports importing and reviewing JSON reports; the local scanner API is intentionally unavailable on the hosted domain.
 
 ## Project decisions
 
@@ -59,3 +69,4 @@ See [`docs/`](docs/product-requirements.md) for product, architecture, safety, c
 
 
 Current implementation boundaries are listed in [implementation status](docs/implementation-status.md).
+

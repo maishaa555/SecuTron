@@ -104,13 +104,49 @@ fn main() -> ExitCode {
             Err(error) => { eprintln!("explain failed: {error}"); ExitCode::from(2) }
         };
     }
-    if command == "serve" {
-        let bind = match args.next() {
-            None => "127.0.0.1:8765".to_string(),
-            Some(flag) if flag == "--bind" => match args.next() { Some(value) if args.next().is_none() => value, _ => { eprintln!("usage: secutron serve [--bind 127.0.0.1:8765]"); return ExitCode::from(2); } },
-            _ => { eprintln!("usage: secutron serve [--bind 127.0.0.1:8765]"); return ExitCode::from(2); }
+    if command == "pr-check" {
+        let mut values = args.collect::<Vec<_>>().into_iter();
+        let Some(report_path) = values.next() else { eprintln!("usage: secutron pr-check <scan-report.json> [--fail-on critical|high|medium|low|info] [--format json|markdown]"); return ExitCode::from(2); };
+        let mut threshold = "high".to_string();
+        let mut format = "json".to_string();
+        while let Some(flag) = values.next() {
+            match flag.as_str() {
+                "--fail-on" => match values.next() { Some(value) if severity_rank(&value).is_some() => threshold = value, _ => { eprintln!("--fail-on requires critical, high, medium, low, or info"); return ExitCode::from(2); } },
+                "--format" => match values.next().as_deref() { Some("json") => format = "json".into(), Some("markdown") => format = "markdown".into(), _ => { eprintln!("--format requires json or markdown"); return ExitCode::from(2); } },
+                _ => { eprintln!("unknown pr-check argument: {}", terminal_safe(&flag)); return ExitCode::from(2); }
+            }
+        }
+        return match pr_check(&report_path, &threshold, &format) {
+            Ok(code) => code,
+            Err(error) => { eprintln!("PR check failed: {error}"); ExitCode::from(2) }
         };
-        return match start_server(&bind) {
+    }
+    if command == "benchmark" {
+        let Some(root) = args.next() else { eprintln!("usage: secutron benchmark <repository-path> [--runs 1..10]"); return ExitCode::from(2); };
+        let mut runs = 5_usize;
+        while let Some(flag) = args.next() {
+            if flag != "--runs" { eprintln!("unknown benchmark argument: {}", terminal_safe(&flag)); return ExitCode::from(2); }
+            let Some(value) = args.next() else { eprintln!("--runs requires a number from 1 to 10"); return ExitCode::from(2); };
+            let Ok(parsed) = value.parse::<usize>() else { eprintln!("--runs requires a number from 1 to 10"); return ExitCode::from(2); };
+            if !(1..=10).contains(&parsed) { eprintln!("--runs requires a number from 1 to 10"); return ExitCode::from(2); }
+            runs = parsed;
+        }
+        return match benchmark_repository(&root, runs) {
+            Ok((result, complete)) => { println!("{}", serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".into())); if complete { ExitCode::SUCCESS } else { ExitCode::from(3) } },
+            Err(error) => { eprintln!("benchmark failed: {error}"); ExitCode::from(2) }
+        };
+    }
+    if command == "serve" {
+        let mut bind = "127.0.0.1:8765".to_string();
+        let mut public_origin = None;
+        while let Some(flag) = args.next() {
+            match flag.as_str() {
+                "--bind" => match args.next() { Some(value) => bind = value, None => { eprintln!("--bind requires an IP socket address"); return ExitCode::from(2); } },
+                "--public-origin" => match args.next() { Some(value) => public_origin = Some(value), None => { eprintln!("--public-origin requires an origin URL"); return ExitCode::from(2); } },
+                _ => { eprintln!("unknown serve argument: {}", terminal_safe(&flag)); return ExitCode::from(2); }
+            }
+        }
+        return match start_server(&bind, public_origin.as_deref()) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => { eprintln!("server failed: {error}"); ExitCode::from(2) }
         };
@@ -278,9 +314,22 @@ struct ApiState {
 #[derive(serde::Deserialize)]
 struct ScanRequest { path: String }
 
-fn start_server(bind: &str) -> Result<(), String> {
+fn start_server(bind: &str, public_origin: Option<&str>) -> Result<(), String> {
     let address: SocketAddr = bind.parse().map_err(|_| "bind address must be an IP socket address")?;
-    if !address.ip().is_loopback() { return Err("the dashboard server may bind only to a loopback address".into()); }
+    let public_address = if address.ip().is_loopback() {
+        if public_origin.is_some() { return Err("--public-origin is only valid when binding a non-loopback container interface".into()); }
+        None
+    } else {
+        let raw_origin = public_origin.ok_or("non-loopback binds require --public-origin pinned to a loopback URL")?;
+        let parsed = reqwest::Url::parse(raw_origin).map_err(|_| "--public-origin must be a valid URL")?;
+        let host = parsed.host_str().ok_or("--public-origin must contain a loopback host")?;
+        let loopback_host = host.eq_ignore_ascii_case("localhost") || host.parse::<std::net::Ipv4Addr>().is_ok_and(|ip| ip.is_loopback());
+        if parsed.scheme() != "http" || !loopback_host || parsed.port() != Some(address.port()) || parsed.path() != "/" || parsed.query().is_some() || parsed.fragment().is_some() || !parsed.username().is_empty() || parsed.password().is_some() {
+            return Err("--public-origin must be a plain HTTP loopback origin using the bound port".into());
+        }
+        let authority = format!("{host}:{}", address.port());
+        Some((authority.clone(), format!("http://{authority}")))
+    };
     let mut random = [0_u8; 32];
     getrandom::fill(&mut random).map_err(|_| "could not generate a local API token")?;
     let token = random.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
@@ -288,8 +337,10 @@ fn start_server(bind: &str) -> Result<(), String> {
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind(address).await.map_err(|_| "could not bind the requested local address")?;
         let actual = listener.local_addr().map_err(|_| "could not read the bound local address")?;
-        let authority = actual.to_string();
-        let origin = format!("http://{authority}");
+        let (authority, origin) = public_address.unwrap_or_else(|| {
+            let authority = actual.to_string();
+            (authority.clone(), format!("http://{authority}"))
+        });
         let cli_executable = env::current_exe().map_err(|_| "could not locate the SecuTron executable")?;
         let state = Arc::new(ApiState { token: Arc::new(token.clone()), authority: authority.clone(), origin: origin.clone(), cli_executable, scan_lock: Arc::new(Semaphore::new(1)) });
         let web_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web");
@@ -460,8 +511,107 @@ fn explain_finding(report_path: &str, finding_id: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn severity_rank(value: &str) -> Option<u8> {
+    match value { "info" => Some(1), "low" => Some(2), "medium" => Some(3), "high" => Some(4), "critical" => Some(5), _ => None }
+}
+
+fn read_report_value(path: &str, max_bytes: u64) -> Result<serde_json::Value, String> {
+    let metadata = std::fs::metadata(path).map_err(|_| "could not read report metadata")?;
+    if metadata.len() > max_bytes { return Err("report exceeds the configured size limit".into()); }
+    let bytes = std::fs::read(path).map_err(|_| "could not read report")?;
+    if bytes.len() as u64 > max_bytes { return Err("report grew beyond the configured size limit".into()); }
+    serde_json::from_slice(&bytes).map_err(|_| "report is not valid JSON".into())
+}
+
+fn pr_check(report_path: &str, threshold: &str, format: &str) -> Result<ExitCode, String> {
+    const MAX_GATE_REPORT_BYTES: u64 = 16 * 1024 * 1024;
+    let report = read_report_value(report_path, MAX_GATE_REPORT_BYTES)?;
+    let result = build_pr_gate_result(&report, threshold)?;
+    if format == "markdown" {
+        println!("{}", result["comment_markdown"].as_str().unwrap_or_default());
+    } else {
+        println!("{}", serde_json::to_string_pretty(&result).map_err(|_| "could not encode PR gate result")?);
+    }
+    Ok(match result["conclusion"].as_str() { Some("success") => ExitCode::SUCCESS, Some("failure") => ExitCode::from(1), _ => ExitCode::from(3) })
+}
+
+fn build_pr_gate_result(report: &serde_json::Value, threshold: &str) -> Result<serde_json::Value, String> {
+    let threshold_rank = severity_rank(threshold).ok_or("unknown severity threshold")?;
+    if report.get("schema_version").and_then(serde_json::Value::as_str) != Some("1") { return Err("expected a SecuTron schema_version 1 scan report".into()); }
+    let complete = report.get("complete").and_then(serde_json::Value::as_bool).ok_or("scan report is missing a boolean complete field")?;
+    let findings = report.get("findings").and_then(serde_json::Value::as_array).ok_or("scan report is missing a findings array")?;
+    let mut counts = std::collections::BTreeMap::<&str, usize>::new();
+    let mut blocking = 0_usize;
+    for finding in findings {
+        let severity = finding.get("severity").and_then(serde_json::Value::as_str).ok_or("finding is missing a severity")?;
+        let rank = severity_rank(severity).ok_or("finding has an unknown severity")?;
+        *counts.entry(severity).or_default() += 1;
+        if rank >= threshold_rank { blocking += 1; }
+    }
+    let conclusion = if !complete { "incomplete" } else if blocking > 0 { "failure" } else { "success" };
+    let mut comment = format!("## SecuTron PR security gate: {}\n\n", match conclusion { "success" => "PASS", "failure" => "FAIL", _ => "INCOMPLETE — review required" });
+    if complete {
+        comment.push_str(&format!("Scanned {} file(s); {} candidate finding(s). Findings at **{threshold}** severity or above: **{blocking}**.\n\n", report.get("scanned_files").and_then(serde_json::Value::as_u64).unwrap_or(0), findings.len()));
+    } else {
+        comment.push_str(&format!("The scan did not complete. This result is **not a pass**, regardless of the finding count. {} candidate finding(s) were recorded; resolve scan errors and rerun before merging.\n\n", findings.len()));
+    }
+    comment.push_str("| Severity | Findings |\n|---|---:|\n");
+    for severity in ["critical", "high", "medium", "low", "info"] {
+        comment.push_str(&format!("| {} | {} |\n", severity, counts.get(severity).copied().unwrap_or(0)));
+    }
+    comment.push_str("\nSecuTron findings are heuristic candidates, not proof of exploitability. Review the evidence and rule limitations before deciding.");
+    Ok(serde_json::json!({
+        "schema_version":"1", "check":"secutron-pr-gate", "threshold":threshold,
+        "conclusion":conclusion, "complete":complete, "finding_count":findings.len(),
+        "blocking_count":blocking, "severity_counts":counts, "comment_markdown":comment
+    }))
+}
+
+fn benchmark_repository(path: &str, runs: usize) -> Result<(serde_json::Value, bool), String> {
+    if !(1..=10).contains(&runs) { return Err("runs must be between 1 and 10".into()); }
+    let root = std::fs::canonicalize(path).map_err(|_| "repository path must exist")?;
+    if !root.is_dir() { return Err("repository path must be a directory".into()); }
+    let mut files = Vec::new();
+    let mut errors = Vec::new();
+    let mut visited = 0;
+    let mut stopped = false;
+    collect_supported_files(&root, &root, &mut files, &mut errors, Instant::now() + MAX_SCAN_DURATION, 0, &mut visited, &mut stopped);
+    files.sort();
+    if files.len() > MAX_FILES { files.truncate(MAX_FILES); errors.push(ScanError { path: ".".into(), message: "benchmark line count limited to the scanner file cap".into() }); }
+    let mut non_empty_lines = 0_u64;
+    for file in &files {
+        match read_bounded(&root, file).ok().and_then(|bytes| String::from_utf8(bytes).ok()) {
+            Some(text) => non_empty_lines = non_empty_lines.saturating_add(text.lines().filter(|line| !line.trim().is_empty()).count() as u64),
+            None => errors.push(ScanError { path: relative_path(&root, file), message: "could not count benchmark lines for this file".into() }),
+        }
+    }
+    let mut elapsed_ms = Vec::with_capacity(runs);
+    let mut scanned_files = 0_u64;
+    let mut complete = errors.is_empty();
+    for _ in 0..runs {
+        let started = Instant::now();
+        let output = run_scanner_bounded(env::current_exe().map_err(|_| "could not locate SecuTron executable")?, root.to_string_lossy().into_owned()).map_err(|_| "scanner process failed during benchmark")?;
+        elapsed_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+        if !matches!(output.status.code(), Some(0 | 1 | 3)) { return Err("scanner rejected the benchmark repository".into()); }
+        let report: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|_| "scanner returned invalid JSON during benchmark")?;
+        scanned_files = report.get("scanned_files").and_then(serde_json::Value::as_u64).unwrap_or(0);
+        complete &= report.get("complete").and_then(serde_json::Value::as_bool) == Some(true);
+    }
+    elapsed_ms.sort_by(f64::total_cmp);
+    let median_ms = if elapsed_ms.len() % 2 == 1 { elapsed_ms[elapsed_ms.len() / 2] } else { (elapsed_ms[elapsed_ms.len() / 2 - 1] + elapsed_ms[elapsed_ms.len() / 2]) / 2.0 };
+    let seconds = (median_ms / 1000.0).max(f64::EPSILON);
+    let result = serde_json::json!({
+        "schema_version":"1", "benchmark":"secutron-scan", "runs":runs,
+        "complete":complete, "scanned_files":scanned_files, "non_empty_source_lines":non_empty_lines,
+        "median_elapsed_ms":median_ms, "files_per_second":scanned_files as f64 / seconds,
+        "non_empty_lines_per_second":non_empty_lines as f64 / seconds,
+        "measurement_note":"Wall time includes SecuTron process startup. Line counts include non-empty lines in supported Python/.env files; they are not logical-code-line counts."
+    });
+    Ok((result, complete))
+}
+
 fn print_help() {
-    println!("SecuTron — local heuristic security scanner\n\nUSAGE:\n    secutron scan <repository-path> [--format text|json|sarif]\n    secutron rules\n    secutron explain <scan-report.json> <finding-id>  (opt-in, asks before sending)\n    secutron serve [--bind 127.0.0.1:8765]  (local dashboard + scan API)\n    secutron --version\n\nOPTIONS:\n    -h, --help       Print this help\n    -V, --version    Print version\n\nExit codes: 0 success/help, 1 findings, 2 invocation/provider error, 3 incomplete scan.");
+    println!("SecuTron — local heuristic security scanner\n\nUSAGE:\n    secutron scan <repository-path> [--format text|json|sarif]\n    secutron pr-check <scan-report.json> [--fail-on critical|high|medium|low|info] [--format json|markdown]\n    secutron benchmark <repository-path> [--runs 1..10]\n    secutron rules\n    secutron explain <scan-report.json> <finding-id>  (opt-in, asks before sending)\n    secutron serve [--bind 127.0.0.1:8765]  (local dashboard + scan API)\n    secutron --version\n\nOPTIONS:\n    -h, --help       Print CLI usage\n    -V, --version    Print version\n\nExit codes: scan 0 clean, 1 findings, 2 invocation error, 3 incomplete; pr-check 0 pass, 1 threshold exceeded, 2 invalid input, 3 incomplete.");
 }
 
 fn terminal_safe(value: &str) -> String {
@@ -1455,3 +1605,38 @@ mod provider_tests {
         worker.join().unwrap();
     }
 }
+
+#[cfg(test)]
+mod gate_tests {
+    use super::*;
+
+    fn report(complete: bool, severities: &[&str]) -> serde_json::Value {
+        serde_json::json!({
+            "schema_version":"1", "complete":complete, "scanned_files":3,
+            "findings":severities.iter().map(|severity| serde_json::json!({"severity":severity})).collect::<Vec<_>>()
+        })
+    }
+
+    #[test]
+    fn pr_gate_applies_threshold_and_produces_a_static_comment() {
+        let result = build_pr_gate_result(&report(true, &["high", "low"]), "high").unwrap();
+        assert_eq!(result["conclusion"], "failure");
+        assert_eq!(result["blocking_count"], 1);
+        assert!(result["comment_markdown"].as_str().unwrap().contains("Scanned 3 file(s)"));
+        assert!(result["comment_markdown"].as_str().unwrap().contains("| low | 1 |"));
+
+        let result = build_pr_gate_result(&report(true, &["high", "low"]), "critical").unwrap();
+        assert_eq!(result["conclusion"], "success");
+        assert_eq!(result["blocking_count"], 0);
+    }
+
+    #[test]
+    fn pr_gate_fails_closed_on_incomplete_reports_and_invalid_severities() {
+        let result = build_pr_gate_result(&report(false, &[]), "high").unwrap();
+        assert_eq!(result["conclusion"], "incomplete");
+        assert!(result["comment_markdown"].as_str().unwrap().contains("not a pass"));
+        assert!(build_pr_gate_result(&report(true, &["unknown"]), "high").is_err());
+        assert!(build_pr_gate_result(&report(true, &[]), "urgent").is_err());
+    }
+}
+

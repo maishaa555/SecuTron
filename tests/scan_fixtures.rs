@@ -168,5 +168,18 @@ fn server_refuses_non_loopback_bind_addresses() {
         .expect("SecuTron CLI should start");
     assert_eq!(output.status.code(), Some(2));
     let error = String::from_utf8_lossy(&output.stderr);
-    assert!(error.contains("loopback address"));
+    assert!(error.contains("public-origin"));
 }
+
+#[test]
+fn server_requires_public_origin_to_be_loopback_and_same_port() {
+    for origin in ["https://127.0.0.1:8765", "http://192.0.2.10:8765", "http://localhost:9000"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_secutron"))
+            .args(["serve", "--bind", "0.0.0.0:8765", "--public-origin", origin])
+            .output()
+            .expect("SecuTron CLI should start");
+        assert_eq!(output.status.code(), Some(2), "origin should be rejected: {origin}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("loopback origin"));
+    }
+}
+

@@ -66,3 +66,8 @@ JSON finding columns are one-based UTF-8 byte offsets, matching Tree-sitter's so
 ## Local HTTP API
 
 `secutron serve` currently exposes `POST /api/scan` on a loopback listener. The request body is `{"path":"..."}` and the response is the same versioned scan report returned by the CLI. The local server uses a process-random bearer token, exact Host/Origin checks, no CORS, an 8 KiB JSON request limit, a single-scan concurrency gate, and a bounded scanner-output read. The token is printed once at startup and is not embedded in served assets. This endpoint is intended for a same-origin local dashboard, not network exposure. Persistence, tenancy, WebSocket streaming, and remote access are not supported.
+
+`secutron pr-check <report.json>` accepts only schema version 1 reports. It defaults to a `high` blocking threshold, supports `critical|high|medium|low|info`, and produces a deterministic JSON summary containing a Markdown comment. It returns 0 for a complete report with no findings at or above threshold, 1 when the threshold is exceeded, 2 for invalid input, and 3 for an incomplete scan. It does not contact GitHub or publish comments. Incomplete reports never pass.
+
+`secutron benchmark <path> [--runs 1..10]` runs the scanner repeatedly and reports median wall time, files/second, and non-empty supported source lines/second. Process startup is included; line counts are not logical LOC. Results are measurements for the current machine and input tree, not portable performance claims.
+

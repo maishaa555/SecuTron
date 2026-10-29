@@ -1,0 +1,10 @@
+.git
+.cargo-home
+target
+.venv
+venv
+node_modules
+dist
+fixtures
+work
+
