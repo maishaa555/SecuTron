@@ -29,6 +29,9 @@ const elements = {
   apiTokenInput: document.querySelector('#apiTokenInput'),
   runScanButton: document.querySelector('#runScanButton'),
   scannerStatus: document.querySelector('#scannerStatus'),
+  scanTelemetry: document.querySelector('#scanTelemetry'),
+  scanLatency: document.querySelector('#scanLatency'),
+  scanThroughput: document.querySelector('#scanThroughput'),
   importButton: document.querySelector('#importButton'),
   heroImportButton: document.querySelector('#heroImportButton'),
   reportState: document.querySelector('#reportState span'),
@@ -375,16 +378,41 @@ async function runLocalScan() {
     return;
   }
   elements.runScanButton.disabled = true;
+  elements.scanTelemetry.hidden = true;
   elements.scannerStatus.textContent = 'Scanning locally…';
   try {
-    const response = await fetch('/api/scan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ path }),
+    if (location.protocol === 'file:') throw new Error('Open the local URL printed by `secutron serve` to use streamed scans.');
+    const socketProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const report = await new Promise((resolve, reject) => {
+      const socket = new WebSocket(`${socketProtocol}//${location.host}/api/scan/stream`);
+      let settled = false;
+      const fail = error => {
+        if (settled) return;
+        settled = true;
+        socket.close();
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      socket.addEventListener('open', () => socket.send(JSON.stringify({ token, path })));
+      socket.addEventListener('message', event => {
+        let message;
+        try { message = JSON.parse(event.data); } catch { fail(new Error('Local scan stream returned invalid JSON.')); return; }
+        if (message.type === 'started') {
+          elements.scannerStatus.textContent = 'Scan started on the local SecuTron server…';
+        } else if (message.type === 'running') {
+          const seconds = (Number(message.elapsed_ms) / 1000).toFixed(1);
+          elements.scannerStatus.textContent = `Scan running · ${seconds}s elapsed`;
+        } else if (message.type === 'error') {
+          fail(new Error(String(message.error || 'Local scan failed.')));
+        } else if (message.type === 'complete') {
+          settled = true;
+          socket.close();
+          resolve({ report: message.report, elapsedMs: Number(message.elapsed_ms) });
+        }
+      });
+      socket.addEventListener('error', () => fail(new Error('Could not connect to the local SecuTron scan stream.')));
+      socket.addEventListener('close', () => { if (!settled) fail(new Error('Local scan stream closed before the scan completed.')); });
     });
-    const result = await response.json();
-    if (!response.ok) throw new Error(String(result.error || `Local API returned HTTP ${response.status}.`));
-    state.report = normalizeReport(result);
+    state.report = normalizeReport(report.report);
     state.origin = `Local scan · ${path}`;
     state.reportName = null;
     state.reportMode = 'local';
@@ -394,6 +422,11 @@ async function runLocalScan() {
     elements.searchInput.value = '';
     document.querySelectorAll('.filter-button').forEach(button => button.classList.toggle('active', button.dataset.filter === 'all'));
     render();
+    const elapsedMs = Math.max(0, report.elapsedMs);
+    const filesPerSecond = elapsedMs > 0 ? state.report.scanned_files / (elapsedMs / 1000) : 0;
+    elements.scanLatency.textContent = `Scan time: ${elapsedMs.toFixed(1)} ms`;
+    elements.scanThroughput.textContent = `Throughput: ${filesPerSecond.toFixed(1)} files/sec`;
+    elements.scanTelemetry.hidden = false;
     elements.scannerStatus.textContent = `Scan returned ${state.report.findings.length} finding${state.report.findings.length === 1 ? '' : 's'} across ${state.report.scanned_files} file${state.report.scanned_files === 1 ? '' : 's'}.`;
     showToast(state.report.complete ? 'Local scan complete.' : 'Local scan ended with recorded errors; review completeness before treating it as clean.');
   } catch (error) {
@@ -437,3 +470,4 @@ document.querySelector('#helpButton').addEventListener('click', () => showToast(
 
 renderRules();
 render();
+

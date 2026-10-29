@@ -160,6 +160,52 @@ fn loopback_dashboard_serves_ui_and_authenticates_scan_api() {
     assert_eq!(report["findings"].as_array().map(Vec::len), Some(0));
 }
 
+#[tokio::test]
+async fn websocket_scan_stream_authenticates_and_reports_completion_telemetry() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::{connect_async, tungstenite::{client::IntoClientRequest, http::HeaderValue, Message}};
+
+    let child = Command::new(env!("CARGO_BIN_EXE_secutron"))
+        .args(["serve", "--bind", "127.0.0.1:0"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("SecuTron server should start");
+    let mut child = ServerChild(child);
+    let stdout = child.0.stdout.take().unwrap();
+    let mut lines = BufReader::new(stdout).lines();
+    let dashboard_line = lines.next().unwrap().unwrap();
+    let token_line = lines.next().unwrap().unwrap();
+    let origin = dashboard_line.strip_prefix("SecuTron dashboard: ").and_then(|line| line.strip_suffix('/')).unwrap();
+    let token = token_line.strip_prefix("Local API bearer token (shown once; enter it in the dashboard): ").unwrap();
+    let endpoint = format!("ws{}/api/scan/stream", &origin[4..]);
+    let mut request = endpoint.as_str().into_client_request().unwrap();
+    request.headers_mut().insert("Origin", HeaderValue::from_str(origin).unwrap());
+    let (mut socket, _) = connect_async(request).await.unwrap();
+    let path = fixture_path("secure");
+    socket.send(Message::Text(serde_json::json!({"token":"invalid","path":path.to_string_lossy()}).to_string().into())).await.unwrap();
+    let invalid = socket.next().await.unwrap().unwrap().into_text().unwrap();
+    let invalid: Value = serde_json::from_str(&invalid).unwrap();
+    assert_eq!(invalid["type"], "error");
+    assert_eq!(invalid["error"], "valid bearer token required");
+    socket.close(None).await.unwrap();
+
+    let mut request = endpoint.as_str().into_client_request().unwrap();
+    request.headers_mut().insert("Origin", HeaderValue::from_str(origin).unwrap());
+    let (mut socket, _) = connect_async(request).await.unwrap();
+    socket.send(Message::Text(serde_json::json!({"token":token,"path":path.to_string_lossy()}).to_string().into())).await.unwrap();
+    let started: Value = serde_json::from_str(&socket.next().await.unwrap().unwrap().into_text().unwrap()).unwrap();
+    assert_eq!(started["type"], "started");
+    let complete: Value = loop {
+        let event: Value = serde_json::from_str(&socket.next().await.unwrap().unwrap().into_text().unwrap()).unwrap();
+        if event["type"] == "complete" { break event; }
+        assert_eq!(event["type"], "running");
+    };
+    assert_eq!(complete["report"]["complete"], true);
+    assert!(complete["elapsed_ms"].as_u64().is_some());
+    socket.close(None).await.unwrap();
+}
+
 #[test]
 fn server_refuses_non_loopback_bind_addresses() {
     let output = Command::new(env!("CARGO_BIN_EXE_secutron"))
@@ -182,4 +228,5 @@ fn server_requires_public_origin_to_be_loopback_and_same_port() {
         assert!(String::from_utf8_lossy(&output.stderr).contains("loopback origin"));
     }
 }
+
 

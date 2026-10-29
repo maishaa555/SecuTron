@@ -1,5 +1,5 @@
 use serde::Serialize;
-use axum::{extract::State, http::{header, HeaderMap, Request, StatusCode}, middleware::{self, Next}, response::{IntoResponse, Response}, routing::post, Json, Router};
+use axum::{extract::{State, ws::{Message, WebSocket, WebSocketUpgrade}}, http::{header, HeaderMap, Request, StatusCode}, middleware::{self, Next}, response::{IntoResponse, Response}, routing::post, Json, Router};
 use std::{collections::HashMap, env, io::{Read, Write}, net::SocketAddr, path::PathBuf, process::{Command, ExitCode, Output, Stdio}, sync::Arc, time::{Duration, Instant}};
 use tree_sitter::Parser;
 use tokio::sync::Semaphore;
@@ -313,6 +313,8 @@ struct ApiState {
 
 #[derive(serde::Deserialize)]
 struct ScanRequest { path: String }
+#[derive(serde::Deserialize)]
+struct ScanSocketRequest { token: String, path: String }
 
 fn start_server(bind: &str, public_origin: Option<&str>) -> Result<(), String> {
     let address: SocketAddr = bind.parse().map_err(|_| "bind address must be an IP socket address")?;
@@ -346,6 +348,7 @@ fn start_server(bind: &str, public_origin: Option<&str>) -> Result<(), String> {
         let web_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web");
         let app = Router::new()
             .route("/api/scan", post(api_scan))
+            .route("/api/scan/stream", axum::routing::get(api_scan_stream))
             .fallback_service(ServeDir::new(web_root).append_index_html_on_directories(true))
             .layer(axum::extract::DefaultBodyLimit::max(8 * 1024))
             .layer(middleware::from_fn_with_state(state.clone(), enforce_local_request))
@@ -355,6 +358,75 @@ fn start_server(bind: &str, public_origin: Option<&str>) -> Result<(), String> {
         std::io::stdout().flush().map_err(|_| "could not display server credentials")?;
         axum::serve(listener, app).await.map_err(|_| "local dashboard server stopped unexpectedly")
     }).map_err(str::to_string)
+}
+
+async fn api_scan_stream(State(state): State<Arc<ApiState>>, upgrade: WebSocketUpgrade) -> Response {
+    upgrade.max_message_size(8 * 1024).max_frame_size(16 * 1024 * 1024 + 8 * 1024).on_upgrade(move |socket| handle_scan_socket(state, socket))
+}
+
+async fn handle_scan_socket(state: Arc<ApiState>, mut socket: WebSocket) {
+    let request = match socket.recv().await {
+        Some(Ok(Message::Text(text))) if text.len() <= 8 * 1024 => serde_json::from_str::<ScanSocketRequest>(&text).ok(),
+        _ => None,
+    };
+    let Some(request) = request else {
+        send_socket_error(&mut socket, "send one JSON message with token and path").await;
+        return;
+    };
+    if !constant_time_eq(request.token.as_bytes(), state.token.as_bytes()) {
+        send_socket_error(&mut socket, "valid bearer token required").await;
+        return;
+    }
+    if request.path.is_empty() || request.path.len() > 4096 || request.path.contains('\0') {
+        send_socket_error(&mut socket, "path must be between 1 and 4096 UTF-8 bytes").await;
+        return;
+    }
+    let permit = match state.scan_lock.clone().try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            send_socket_error(&mut socket, "a scan is already running").await;
+            return;
+        }
+    };
+    if socket.send(Message::Text(serde_json::json!({"type":"started"}).to_string().into())).await.is_err() { return; }
+    let started = Instant::now();
+    let executable = state.cli_executable.clone();
+    let mut task = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        run_scanner_bounded(executable, request.path)
+    });
+    let output = loop {
+        tokio::select! {
+            result = &mut task => match result {
+                Ok(Ok(output)) => break output,
+                _ => { send_socket_error(&mut socket, "scanner process failed").await; return; }
+            },
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                let event = serde_json::json!({"type":"running", "elapsed_ms":started.elapsed().as_millis()});
+                if socket.send(Message::Text(event.to_string().into())).await.is_err() { return; }
+            }
+        }
+    };
+    if !matches!(output.status.code(), Some(0 | 1 | 3)) {
+        send_socket_error(&mut socket, "scanner rejected the path or invocation").await;
+        return;
+    }
+    if output.stdout.len() > 16 * 1024 * 1024 {
+        send_socket_error(&mut socket, "scan report exceeds the 16 MiB API response limit").await;
+        return;
+    }
+    match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+        Ok(report) => {
+            let event = serde_json::json!({"type":"complete", "elapsed_ms":started.elapsed().as_millis(), "report":report});
+            let _ = socket.send(Message::Text(event.to_string().into())).await;
+        }
+        Err(_) => send_socket_error(&mut socket, "scanner returned an invalid report").await,
+    }
+}
+
+async fn send_socket_error(socket: &mut WebSocket, message: &str) {
+    let event = serde_json::json!({"type":"error", "error":message});
+    let _ = socket.send(Message::Text(event.to_string().into())).await;
 }
 
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
@@ -1639,4 +1711,5 @@ mod gate_tests {
         assert!(build_pr_gate_result(&report(true, &[]), "urgent").is_err());
     }
 }
+
 

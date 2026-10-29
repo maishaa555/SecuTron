@@ -80,6 +80,7 @@
           </div>
           <p class="scanner-disclosure">The API scans the folder on this computer and returns the JSON report to this page. The token stays in this page's memory and is not saved. Start with <code>cargo run -- serve</code>, then open the local URL it prints.</p>
           <p class="scanner-status" id="scannerStatus" role="status" aria-live="polite">No local API connection yet.</p>
+          <p class="scanner-telemetry" id="scanTelemetry" hidden><span id="scanLatency">Scan time: —</span><span id="scanThroughput">Throughput: —</span></p>
         </details>
 
         <div class="hero-card">
@@ -179,3 +180,4 @@
   <script src="app.js"></script>
 </body>
 </html>
+

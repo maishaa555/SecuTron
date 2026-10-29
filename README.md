@@ -47,7 +47,7 @@ Exit codes: `0` completed with no findings; `1` completed with findings; `2` inv
 
 ## Local dashboard
 
-Run `cargo run -- serve`, then open the loopback URL printed by SecuTron and enter the one-time token printed in the terminal. The dashboard's **Run a local scan** panel calls the authenticated loopback API; enter a repository folder on the machine running SecuTron. The token stays in page memory and reports are not persisted by the server. The page can also be opened directly as [`web/index.html`](web/index.html) to import saved JSON reports. Imported or live reports offer JSON download and a CLI explanation command template; the browser never contacts the AI provider.
+Run `cargo run -- serve`, then open the loopback URL printed by SecuTron and enter the one-time token printed in the terminal. The dashboard's **Run a local scan** panel uses an authenticated loopback WebSocket; enter a repository folder on the machine running SecuTron. The stream reports scan start, elapsed-time heartbeats, and completion with measured duration and files/sec. The token stays in page memory and reports are not persisted by the server. The page can also be opened directly as [`web/index.html`](web/index.html) to import saved JSON reports. Imported or live reports offer JSON download and a CLI explanation command template; the browser never contacts the AI provider.
 
 The initial CLI integration fixtures are in [`fixtures/vulnerable-shop/`](fixtures/vulnerable-shop/). The `vulnerable/` examples are intentionally unsafe scanner inputs, not a runnable or deployable shop application.
 
@@ -69,4 +69,5 @@ See [`docs/`](docs/product-requirements.md) for product, architecture, safety, c
 
 
 Current implementation boundaries are listed in [implementation status](docs/implementation-status.md).
+
 
