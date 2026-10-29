@@ -32,7 +32,7 @@ Updated: 2026-10-29
 - `PY.CRYPTO.WEAK`: direct calls spelled `md5`, `sha1`, `hashlib.md5`, `hashlib.sha1`, or common PyCryptodome MD5/SHA-1 constructors. Module identity and purpose are heuristic; legitimate checksums can be flagged.
 - `PY.RANDOM.INSECURE`: common direct calls to Python `random` functions, including `getrandbits`; aliases, module identity, and security context are not resolved. Secure `secrets` APIs are not matched.
 - Nebius Token Factory explanation request: OpenAI-compatible HTTPS chat completions, configured by `NEBIUS_API_KEY`, `SECUTRON_API_BASE`, and `SECUTRON_MODEL`. The command prompts before sending one selected finding's allowlisted metadata/evidence, enforces payload/response limits, sets a timeout, disables redirects, and prints latency/token usage when returned. It sends no source files or `.env` data. No patch generation, sandbox, or auto-fix loop is implemented; provider behavior has not been integration-tested with credentials.
-- Local dashboard API: `secutron serve [--bind 127.0.0.1:8765]` generates a 256-bit random bearer token for the process session, serves `web/`, and exposes authenticated `POST /api/scan`. The scan request accepts a path string and invokes the CLI executable without a shell. It allows one scan at a time, checks the exact Host and browser Origin, limits JSON request size, does not cache reports, and returns the CLI JSON report. Non-loopback binding requires a same-port loopback `--public-origin`; use only with a host port mapped to loopback as in the provided Compose file.
+- Local dashboard API: `secutron serve [--bind 127.0.0.1:8765]` generates a 256-bit random bearer token for the process session and serves `web/`. Authenticated `POST /api/scan` invokes the CLI without a shell; `GET /api/scan/stream` streams scan lifecycle and timing events; `POST /api/explain` sends one allowlisted finding to the configured provider after a dashboard click. Scan and provider work are each limited to one concurrent request. The server checks exact Host/Origin, bounds request and response sizes, and does not persist reports. Non-loopback binding requires a same-port loopback `--public-origin`; use only with a host port mapped to loopback as in the provided Compose file.
 
 ## Material limits
 
@@ -59,6 +59,7 @@ Nebius' current OpenAI-compatible API base URL and a Nemotron model identifier a
 ## Build and verification
 
 On 2026-10-29, the baseline Rust suite passed five provider unit tests and eight scanner/API integration tests. The current suite passes seven unit tests and ten integration tests, including WebSocket authentication and completion telemetry; `node --check web/app.js` and `git diff --check` pass. The two-run vulnerable-fixture benchmark measured one file, 26 non-empty lines, and 37.53 ms median process time (26.65 files/sec, 692.81 non-empty lines/sec) in this environment; these are smoke measurements, not portable performance claims. A local PR-gate smoke test returned `failure` for four high findings. Docker engine, live AI-provider, and sandbox validation remain unverified.
+
 
 
 
