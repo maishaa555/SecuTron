@@ -1,0 +1,9 @@
+# The toolchain directory is excluded from scans.
+.git/
+target/
+.venv/
+venv/
+__pycache__/
+node_modules/
+dist/
+.cargo-home/

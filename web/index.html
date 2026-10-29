@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#070d19">
+  <meta name="description" content="SecuTron local security scan report dashboard">
+  <title>SecuTron — Security Overview</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Main navigation">
+      <a class="brand-wordmark" href="#overview" aria-label="SecuTron home"></a>
+
+      <div class="workspace-switcher">
+        <span class="workspace-mark">S</span>
+        <span class="workspace-copy"><strong>Local workspace</strong><small>Personal environment</small></span>
+        <span class="chevron" aria-hidden="true">⌄</span>
+      </div>
+
+      <div class="nav-label">WORKSPACE</div>
+      <nav class="nav-list">
+        <button class="nav-item active" type="button" data-view="overview" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          Overview
+        </button>
+        <button class="nav-item" type="button" data-view="findings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 21 19H3L12 3Z"/><path d="M12 9v4m0 3h.01"/></svg>
+          Findings <span class="nav-count" id="navFindingCount">—</span>
+        </button>
+        <button class="nav-item" type="button" data-view="rules">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v17H7.5A2.5 2.5 0 0 0 5 21.5v-17Z"/><path d="M5 5v16m4-13h7m-7 4h7"/></svg>
+          Rule coverage
+        </button>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="local-card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 6v5c0 5-3.4 8.3-8 10-4.6-1.7-8-5-8-10V6l8-3Z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></svg></div>
+        <strong>Local-first by design</strong>
+        <p>Reports are read in this browser. Source code is not uploaded.</p>
+        <span class="privacy-indicator"><i></i> LOCAL SESSION</span>
+      </div>
+      <div class="sidebar-footer">SECUTRON <span>·</span> EARLY ACCESS</div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div class="breadcrumbs"><span>Workspace</span><b>/</b><strong id="breadcrumbCurrent">Overview</strong></div>
+        <div class="topbar-actions">
+          <span class="local-badge"><i></i> LOCAL MODE</span>
+          <button class="icon-button" id="helpButton" type="button" aria-label="About this dashboard" title="About this dashboard">?</button>
+          <div class="avatar" aria-label="Local user">M</div>
+        </div>
+      </header>
+
+      <section class="view active" id="overviewView" aria-labelledby="pageTitle">
+        <div class="page-heading">
+          <div>
+            <div class="eyebrow"><span class="eyebrow-line"></span> SECURITY OPERATIONS</div>
+            <h1 id="pageTitle">Security overview</h1>
+            <p class="page-subtitle">Evidence-first findings from your local SecuTron scan.</p>
+          </div>
+          <div class="heading-actions">
+            <span class="report-state" id="reportState"><i></i><span>Demo preview</span></span>
+            <button class="button button-primary" id="importButton" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M4 15v5h16v-5"/></svg>
+              Import scan report
+            </button>
+            <input id="reportInput" type="file" accept=".json,application/json" hidden>
+          </div>
+        </div>
+
+        <details class="scanner-panel">
+          <summary><span><strong>Run a local scan</strong><small>Connect to the SecuTron loopback server</small></span><span class="scanner-panel-tag">LOCAL API</span></summary>
+          <div class="scanner-fields">
+            <label>Repository folder on the server machine<input id="scanPathInput" type="text" placeholder="C:\Projects\my-app" autocomplete="off" spellcheck="false"></label>
+            <label>One-time local API token<input id="apiTokenInput" type="password" placeholder="Paste the token printed by secutron serve" autocomplete="off" spellcheck="false"></label>
+            <button class="button button-primary" id="runScanButton" type="button">Run local scan</button>
+          </div>
+          <p class="scanner-disclosure">The API scans the folder on this computer and returns the JSON report to this page. The token stays in this page's memory and is not saved. Start with <code>cargo run -- serve</code>, then open the local URL it prints.</p>
+          <p class="scanner-status" id="scannerStatus" role="status" aria-live="polite">No local API connection yet.</p>
+        </details>
+
+        <div class="hero-card">
+          <div class="hero-copy">
+            <div class="hero-kicker"><span class="pulse-dot"></span> LOCAL REPOSITORY SCAN</div>
+            <h2>See the evidence.<br><span>Know what to fix.</span></h2>
+            <p>Review candidate risks with clear file locations, source-to-sink traces, and rule limitations.</p>
+            <div class="hero-actions">
+              <button class="button button-light" id="heroImportButton" type="button">Open a scan report <span aria-hidden="true">→</span></button>
+              <span class="hero-note">JSON output from the SecuTron CLI</span>
+            </div>
+          </div>
+          <div class="hero-art-wrap" aria-label="SecuTron brand artwork">
+            <img src="assets/secutron-dashboard-reference.png" alt="SecuTron cat mascot and wordmark in the blue cybersecurity theme">
+            <div class="hero-art-glow"></div>
+          </div>
+          <div class="hero-orbit orbit-one"></div><div class="hero-orbit orbit-two"></div>
+        </div>
+
+        <div class="metrics-grid" aria-label="Scan summary">
+          <article class="metric-card metric-total">
+            <div class="metric-top"><span>Total findings</span><span class="metric-icon blue"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 21 19H3L12 3Z"/><path d="M12 9v4m0 3h.01"/></svg></span></div>
+            <div class="metric-value" id="totalFindings">—</div>
+            <div class="metric-foot" id="scanCompleteness">Import a report to begin</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-top"><span>High severity</span><span class="metric-icon coral"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 21 19H3L12 3Z"/><path d="M12 9v4m0 3h.01"/></svg></span></div>
+            <div class="metric-value" id="highFindings">—</div>
+            <div class="metric-foot">High and critical findings</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-top"><span>Files analyzed</span><span class="metric-icon violet"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5M9 13h6m-6 4h6"/></svg></span></div>
+            <div class="metric-value" id="filesScanned">—</div>
+            <div class="metric-foot">Python and environment files</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-top"><span>Rules triggered</span><span class="metric-icon gold"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v17H7.5A2.5 2.5 0 0 0 5 21.5v-17Z"/><path d="M5 5v16m4-13h7m-7 4h5"/></svg></span></div>
+            <div class="metric-value" id="rulesTriggered">—</div>
+            <div class="metric-foot">Distinct implemented rules</div>
+          </article>
+        </div>
+
+        <div class="overview-grid">
+          <article class="panel severity-panel">
+            <div class="panel-heading">
+              <div><div class="eyebrow">FINDING BREAKDOWN</div><h2>Severity distribution</h2></div>
+              <span class="panel-tag">CURRENT REPORT</span>
+            </div>
+            <div class="severity-chart" id="severityChart" aria-label="Finding counts by severity"></div>
+            <div class="chart-legend"><span><i class="legend-critical"></i>Critical</span><span><i class="legend-high"></i>High</span><span><i class="legend-medium"></i>Medium</span><span><i class="legend-low"></i>Low / info</span></div>
+          </article>
+          <article class="panel scan-panel">
+            <div class="panel-heading">
+              <div><div class="eyebrow">SCAN STATUS</div><h2>Report health</h2></div>
+              <span class="status-pill" id="completenessPill"><i></i><span>NO REPORT</span></span>
+            </div>
+            <div class="scan-health-main"><span class="health-ring" id="healthRing"><span id="healthIcon">—</span></span><div><strong id="healthTitle">No report loaded</strong><p id="healthDescription">Import a JSON scan report to see its status.</p></div></div>
+            <div class="health-details"><div><span>Scanned files</span><strong id="healthFiles">—</strong></div><div><span>Recorded errors</span><strong id="healthErrors">—</strong></div></div>
+            <div class="error-list" id="errorList" hidden></div>
+          </article>
+        </div>
+
+        <section class="findings-section" id="findings" aria-labelledby="findingsTitle">
+          <div class="section-heading">
+            <div><div class="eyebrow">TRIAGE QUEUE</div><h2 id="findingsTitle">Findings</h2><p>Open a finding to review its evidence and limitations.</p></div>
+            <div class="finding-tools">
+              <label class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/></svg><input id="searchInput" type="search" placeholder="Search findings" aria-label="Search findings"></label>
+              <div class="filter-group" role="group" aria-label="Filter findings by severity">
+                <button class="filter-button active" type="button" data-filter="all">All</button>
+                <button class="filter-button" type="button" data-filter="high">High</button>
+                <button class="filter-button" type="button" data-filter="medium">Medium</button>
+                <button class="filter-button" type="button" data-filter="low">Low</button>
+              </div>
+            </div>
+          </div>
+          <div class="findings-layout">
+            <div class="finding-list" id="findingList" aria-live="polite"></div>
+            <aside class="finding-detail panel" id="findingDetail" aria-live="polite">
+              <div class="detail-empty"><div class="detail-shield"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 6v5c0 5-3.4 8.3-8 10-4.6-1.7-8-5-8-10V6l8-3Z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></svg></div><h3>Select a finding</h3><p>Evidence, trace, and rule limitations will appear here.</p></div>
+            </aside>
+          </div>
+        </section>
+
+        <footer class="page-footer"><span><i></i> Analysis stays on this device</span><span>Candidate findings only · Not proof of exploitability</span></footer>
+      </section>
+
+      <section class="view rules-view" id="rulesView" aria-labelledby="rulesTitle" hidden>
+        <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> DETECTION CATALOG</div><h1 id="rulesTitle">Rule coverage</h1><p class="page-subtitle">What SecuTron currently checks—and where each heuristic stops.</p></div><button class="button button-secondary" data-view="overview" type="button">← Back to overview</button></div>
+        <div class="rules-note"><span class="note-icon">i</span><p>These are candidate detections from the current local CLI. They do not establish exploitability or prove that a repository is secure.</p></div>
+        <div class="rule-grid" id="ruleGrid"></div>
+        <article class="panel cli-card"><div class="cli-card-copy"><div class="eyebrow">LOCAL SCAN WORKFLOW</div><h2>Generate a report from your terminal</h2><p>Run SecuTron locally, then import the JSON file or paste the report into a saved file.</p></div><code>cargo run -- scan . --format json</code></article>
+      </section>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
