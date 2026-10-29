@@ -20,7 +20,7 @@ Updated: 2026-10-29
 - Repeated detections for the same rule and source location are collapsed into one finding.
 - Local source-to-sink tracking follows simple assignments in function source order, including annotated assignments, assignment expressions, and `for` loop targets; simple `del` statements clear tracked names. It does not model branch paths or aliases.
 - Request-source markers include common Flask, Django, and ASGI request attributes for query/form/body data, headers, cookies, files, URL/path values, `request.META`, `request.environ`, and `request.stream`; framework identity and trust semantics are not verified.
-- Local dashboard in `web/`: branded report viewer with the supplied SecuTron artwork, JSON import, severity/search filtering, finding evidence/trace/limitations, completeness indicators, rule coverage, and local scan controls. `secutron serve` binds to loopback by default and serves authenticated `/api/scan` and `/api/scan/stream`; the stream authenticates its first bounded JSON message, reports started/running/completed/error events, and includes scan duration and files/sec telemetry. The server requires a one-time random bearer token, exact Host/Origin checks, a single concurrent scan, bounded request bodies, and does not persist reports. An explicit non-loopback bind requires a loopback `--public-origin` pinned to the same port; Compose maps this to host loopback only. The browser holds the token only in page memory. It can download report JSON and copy a CLI explanation command; it does not contact the model provider.
+- Local dashboard in `web/`: branded report viewer with the supplied SecuTron artwork, JSON import, severity/search filtering, finding evidence/trace/limitations, completeness indicators, rule coverage, and local scan controls. `secutron serve` binds to loopback by default and serves authenticated `/api/scan`, `/api/scan/stream`, and `/api/explain`; the stream reports scan lifecycle events and scan-time/files-per-second telemetry. Clicking the local AI explanation action sends one finding through the allowlist and shows provider, model, latency, and token usage. It never sends source files, `.env` values, other findings, or a full report. The server requires a one-time random bearer token, exact Host/Origin checks, a single concurrent scan, bounded request bodies, and does not persist reports. An explicit non-loopback bind requires a loopback `--public-origin` pinned to the same port; Compose maps this to host loopback only. The browser holds the token only in page memory. The hosted Vercel page stays in report-viewer mode and hides local scanner/provider actions.
 - Initial fixture repository in `fixtures/vulnerable-shop/` contains intentionally vulnerable, secure-negative, `.env` edge, and syntax-error samples. Eight Rust integration tests invoke the CLI and verify rule coverage (including weak and imported crypto/random calls), negative results, redaction, parsing, incomplete-scan exit status, deterministic JSON, SARIF metadata/results, and the authenticated local server.
 - Text output shows sanitized evidence roles and rule limitations, without printing source lines or secret values.
 - `PY.SECRET.LITERAL`: direct, chained, annotated, or assignment-expression assignment, credential-like string keys in dictionaries, credential-like keyword arguments, and credential-like parameter defaults with direct string literal values. Interpolated f-strings are excluded. Parenthesized literal values and common Python string prefixes are handled; placeholder matching is case-insensitive after literal delimiters are removed. Credential-name matching is case-insensitive after non-alphanumeric characters are removed. The reported range covers only the variable, key, argument, or parameter name.
@@ -44,15 +44,14 @@ Updated: 2026-10-29
 - Parse errors mark the scan incomplete, but the parser may still produce candidate findings from recovered syntax.
 - Confidence values are hand-set rule metadata, not calibrated exploit probabilities or measured accuracy.
 - Secret placeholder suppression matches a small exact-value list and whole-value `$NAME`, `${...}`, or `{{...}}` templates; credentials containing placeholder-like words may still be reported.
-- Patch generation, an OS-isolated validation sandbox, in-dashboard AI explanation/token telemetry, GitHub comment posting, and dependency scanning are not implemented. The AI explanation is provider-dependent and has not been exercised against a live account.
+- Patch generation, an OS-isolated validation sandbox, GitHub comment posting, and dependency scanning are not implemented. The AI explanation is provider-dependent and has not been exercised against a live account.
 
 ## Next engineering steps
 
 1. Expand `fixtures/vulnerable-shop/` with positive, negative, and edge-case cases for every supported syntax pattern, including traversal/resource limits and malformed source variants.
 2. Revisit path-race defenses and configuration after the fixture suite can exercise them.
 3. Exercise the opt-in Nebius/Nemotron explanation against a test account, then validate provider behavior without logging payloads or credentials.
-4. Add measured AI-provider telemetry to the local dashboard.
-5. Implement patch generation and validation only after an OS-isolated runner is available; ordinary temporary directories are not a sandbox for untrusted test code.
+4. Implement patch generation and validation only after an OS-isolated runner is available; ordinary temporary directories are not a sandbox for untrusted test code.
 
 Nebius' current OpenAI-compatible API base URL and a Nemotron model identifier are documented in `ai-policy.md`; defaults were checked 2026-10-29 and must be rechecked before release.
 
@@ -60,5 +59,6 @@ Nebius' current OpenAI-compatible API base URL and a Nemotron model identifier a
 ## Build and verification
 
 On 2026-10-29, the baseline Rust suite passed five provider unit tests and eight scanner/API integration tests. The current suite passes seven unit tests and ten integration tests, including WebSocket authentication and completion telemetry; `node --check web/app.js` and `git diff --check` pass. The two-run vulnerable-fixture benchmark measured one file, 26 non-empty lines, and 37.53 ms median process time (26.65 files/sec, 692.81 non-empty lines/sec) in this environment; these are smoke measurements, not portable performance claims. A local PR-gate smoke test returned `failure` for four high findings. Docker engine, live AI-provider, and sandbox validation remain unverified.
+
 
 

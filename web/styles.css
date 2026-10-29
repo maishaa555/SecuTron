@@ -242,6 +242,9 @@ h1 { margin: 7px 0 4px; font: 700 clamp(24px, 2vw, 30px)/1.2 var(--font-display)
 .ai-action .button { min-height: 31px; padding: 0 10px; font-size: 9px; }
 .ai-action-buttons { display: flex; flex-wrap: wrap; gap: 7px; }
 .ai-action p { margin: 8px 0 0; color: #8fa2bd; font-size: 9px; line-height: 1.5; }
+.ai-action .ai-disclosure { color: #a8bad3; }
+.ai-action .ai-explanation { padding: 10px; border-left: 2px solid #4b83e9; background: rgba(8, 18, 36, .62); color: #e7eefb; white-space: pre-wrap; }
+.ai-action .ai-telemetry { margin-top: 8px; color: #80aefb; font-size: 9px; }
 .detail-block { margin-top: 12px; padding-top: 11px; border-top: 1px solid rgba(106, 138, 185, .13); }
 .detail-block-title { margin-bottom: 7px; color: #7b8eaa; font-size: 8px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .evidence-item { display: flex; gap: 8px; margin-top: 6px; color: #a9b8cc; font-size: 9px; line-height: 1.45; }
@@ -342,4 +345,5 @@ h1 { margin: 7px 0 4px; font: 700 clamp(24px, 2vw, 30px)/1.2 var(--font-display)
   .cli-card { align-items: flex-start; flex-direction: column; }
   .cli-card code { max-width: 100%; overflow-x: auto; }
 }
+
 

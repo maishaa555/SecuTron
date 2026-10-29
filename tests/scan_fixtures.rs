@@ -140,6 +140,10 @@ fn loopback_dashboard_serves_ui_and_authenticates_scan_api() {
     let unauthorized = client.post(&endpoint).json(&body).send().unwrap();
     assert_eq!(unauthorized.status(), reqwest::StatusCode::UNAUTHORIZED);
 
+    let explain_unauthorized = client.post(format!("{origin}/api/explain"))
+        .json(&serde_json::json!({"finding":{"id":"fixture"}})).send().unwrap();
+    assert_eq!(explain_unauthorized.status(), reqwest::StatusCode::UNAUTHORIZED);
+
     let oversized = client.post(&endpoint)
         .header("Authorization", format!("Bearer {token}"))
         .json(&serde_json::json!({"path":"x".repeat(9000)}))
@@ -228,5 +232,6 @@ fn server_requires_public_origin_to_be_loopback_and_same_port() {
         assert!(String::from_utf8_lossy(&output.stderr).contains("loopback origin"));
     }
 }
+
 
 

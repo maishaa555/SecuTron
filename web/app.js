@@ -24,6 +24,12 @@ const DEMO_REPORT = {
 };
 
 const elements = {
+  scannerPanel: document.querySelector('#scannerPanel'),
+  modeBadge: document.querySelector('#modeBadge'),
+  workspaceTitle: document.querySelector('#workspaceTitle'),
+  workspaceSubtitle: document.querySelector('#workspaceSubtitle'),
+  pageSubtitle: document.querySelector('#pageSubtitle'),
+  heroKicker: document.querySelector('#heroKicker'),
   reportInput: document.querySelector('#reportInput'),
   scanPathInput: document.querySelector('#scanPathInput'),
   apiTokenInput: document.querySelector('#apiTokenInput'),
@@ -58,7 +64,22 @@ const elements = {
   breadcrumbCurrent: document.querySelector('#breadcrumbCurrent'),
 };
 
-const state = { report: DEMO_REPORT, origin: 'Demo preview', reportName: null, reportMode: 'demo', filter: 'all', search: '', selected: null, toastTimer: null };
+const state = { report: DEMO_REPORT, origin: 'Demo preview', reportName: null, reportMode: 'demo', apiAvailable: false, filter: 'all', search: '', selected: null, toastTimer: null };
+
+function configureHostingMode() {
+  const loopbackHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+  const localServer = location.protocol !== 'file:' && loopbackHosts.has(location.hostname);
+  if (localServer) { state.apiAvailable = true; return; }
+
+  elements.scannerPanel.hidden = true;
+  elements.modeBadge.textContent = 'HOSTED REPORT VIEWER';
+  elements.workspaceTitle.textContent = 'Hosted dashboard';
+  elements.workspaceSubtitle.textContent = 'Report review only';
+  elements.pageSubtitle.textContent = 'Import a SecuTron JSON report to review findings. Scans run on your own machine.';
+  elements.heroKicker.textContent = 'LOCAL SCANS · HOSTED REVIEW';
+  document.querySelector('.sidebar-bottom p').textContent = 'Imported reports stay in this browser. Source code is not uploaded.';
+  document.querySelector('.privacy-indicator').lastChild.textContent = ' BROWSER ONLY';
+}
 
 function textNode(tag, className, text) {
   const node = document.createElement(tag);
@@ -265,7 +286,41 @@ function renderFindingDetail(finding) {
     copyCommand.setAttribute('aria-label', `Copy CLI explanation command for ${String(finding.id)}`);
     copyCommand.addEventListener('click', () => copyExplainCommand(finding));
     actions.append(download, copyCommand);
-    aiAction.append(actions, textNode('p', '', `${state.reportName ? `Imported ${state.reportName}.` : 'Save the local scan as JSON first.'} Replace the report-path placeholder, then run from the SecuTron project folder. The CLI will ask before sending this finding to the configured provider.`));
+    aiAction.append(actions, textNode('p', '', `${state.reportName ? `Imported ${state.reportName}.` : 'Save the local scan as JSON first.'} Replace the report-path placeholder, then run from the SecuTron project folder. The CLI asks before sending this finding to the configured provider.`));
+    if (state.apiAvailable) {
+      const explainButton = textNode('button', 'button button-secondary', 'Ask Nebius to explain');
+      explainButton.type = 'button';
+      const explanation = textNode('p', 'ai-explanation', '');
+      const telemetry = textNode('div', 'ai-telemetry', '');
+      explainButton.addEventListener('click', async () => {
+        const token = elements.apiTokenInput.value.trim();
+        if (!token) { explanation.textContent = 'Enter the local API token above first.'; return; }
+        explainButton.disabled = true;
+        explanation.textContent = 'Sending this finding’s allowlisted metadata and sanitized evidence to the configured Nebius provider…';
+        telemetry.textContent = '';
+        try {
+          const response = await fetch('/api/explain', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ finding }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(String(result.error || `Local API returned HTTP ${response.status}.`));
+          explanation.textContent = String(result.explanation || 'The provider returned no explanation.');
+          const inputTokens = Number.isSafeInteger(result.input_tokens) ? result.input_tokens : '—';
+          const outputTokens = Number.isSafeInteger(result.output_tokens) ? result.output_tokens : '—';
+          telemetry.textContent = `${String(result.provider)} · ${String(result.model)} · ${Number(result.latency_ms).toFixed(0)} ms · ${inputTokens} input / ${outputTokens} output tokens`;
+        } catch (error) {
+          explanation.textContent = String(error.message || 'The provider request failed.');
+        } finally { explainButton.disabled = false; }
+      });
+      actions.append(explainButton);
+      aiAction.append(
+        textNode('p', 'ai-disclosure', 'Clicking Ask sends only this finding’s allowlisted metadata, sanitized evidence, trace, and limitations. It does not send source files, the full report, or environment values.'),
+        explanation,
+        telemetry,
+      );
+    }
     elements.findingDetail.append(aiAction);
   }
 
@@ -469,5 +524,7 @@ document.querySelectorAll('[data-view]').forEach(button => button.addEventListen
 document.querySelector('#helpButton').addEventListener('click', () => showToast('Demo preview is illustrative. Import a SecuTron JSON report to inspect real scan results.'));
 
 renderRules();
+configureHostingMode();
 render();
+
 

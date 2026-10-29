@@ -309,10 +309,13 @@ struct ApiState {
     origin: String,
     cli_executable: PathBuf,
     scan_lock: Arc<Semaphore>,
+    provider_lock: Arc<Semaphore>,
 }
 
 #[derive(serde::Deserialize)]
 struct ScanRequest { path: String }
+#[derive(serde::Deserialize)]
+struct ExplainRequest { finding: serde_json::Value }
 #[derive(serde::Deserialize)]
 struct ScanSocketRequest { token: String, path: String }
 
@@ -344,13 +347,14 @@ fn start_server(bind: &str, public_origin: Option<&str>) -> Result<(), String> {
             (authority.clone(), format!("http://{authority}"))
         });
         let cli_executable = env::current_exe().map_err(|_| "could not locate the SecuTron executable")?;
-        let state = Arc::new(ApiState { token: Arc::new(token.clone()), authority: authority.clone(), origin: origin.clone(), cli_executable, scan_lock: Arc::new(Semaphore::new(1)) });
+        let state = Arc::new(ApiState { token: Arc::new(token.clone()), authority: authority.clone(), origin: origin.clone(), cli_executable, scan_lock: Arc::new(Semaphore::new(1)), provider_lock: Arc::new(Semaphore::new(1)) });
         let web_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web");
         let app = Router::new()
-            .route("/api/scan", post(api_scan))
+            .route("/api/scan", post(api_scan).layer(axum::extract::DefaultBodyLimit::max(8 * 1024)))
             .route("/api/scan/stream", axum::routing::get(api_scan_stream))
+            .route("/api/explain", post(api_explain))
             .fallback_service(ServeDir::new(web_root).append_index_html_on_directories(true))
-            .layer(axum::extract::DefaultBodyLimit::max(8 * 1024))
+            .layer(axum::extract::DefaultBodyLimit::max(128 * 1024))
             .layer(middleware::from_fn_with_state(state.clone(), enforce_local_request))
             .with_state(state);
         println!("SecuTron dashboard: {origin}/");
@@ -362,6 +366,55 @@ fn start_server(bind: &str, public_origin: Option<&str>) -> Result<(), String> {
 
 async fn api_scan_stream(State(state): State<Arc<ApiState>>, upgrade: WebSocketUpgrade) -> Response {
     upgrade.max_message_size(8 * 1024).max_frame_size(16 * 1024 * 1024 + 8 * 1024).on_upgrade(move |socket| handle_scan_socket(state, socket))
+}
+
+async fn api_explain(State(state): State<Arc<ApiState>>, headers: HeaderMap, Json(input): Json<ExplainRequest>) -> Response {
+    if !authorized_api_request(&headers, &state.token) {
+        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error":"valid bearer token required"}))).into_response();
+    }
+    let payload = match serialize_finding_payload(&input.finding, 64 * 1024) {
+        Ok(payload) => payload,
+        Err(error) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":error}))).into_response(),
+    };
+    let permit = match state.provider_lock.clone().try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => return (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({"error":"a provider request is already running"}))).into_response(),
+    };
+    let result = tokio::task::spawn_blocking(move || { let _permit = permit; run_provider_explanation(payload) }).await;
+    match result {
+        Ok(Ok(telemetry)) => {
+            let mut response = (StatusCode::OK, Json(telemetry)).into_response();
+            response.headers_mut().insert(header::CACHE_CONTROL, axum::http::HeaderValue::from_static("no-store"));
+            response
+        }
+        Ok(Err(error)) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":error}))).into_response(),
+        Err(_) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":"provider request failed"}))).into_response(),
+    }
+}
+
+fn run_provider_explanation(payload: String) -> Result<serde_json::Value, String> {
+    const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
+    let api_key = env::var("NEBIUS_API_KEY").map_err(|_| "NEBIUS_API_KEY is not set")?;
+    if api_key.trim().is_empty() { return Err("NEBIUS_API_KEY is empty".into()); }
+    let base = env::var("SECUTRON_API_BASE").unwrap_or_else(|_| "https://api.tokenfactory.nebius.com/".into());
+    let model = env::var("SECUTRON_MODEL").unwrap_or_else(|_| "nvidia/Nemotron-3_5-Lightning".into());
+    let endpoint = build_provider_endpoint(&base)?;
+    let host = endpoint.host_str().unwrap_or("provider").to_string();
+    let request_body = build_explanation_request(&model, &payload);
+    let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(45)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_| "could not initialize HTTPS client")?;
+    let started = Instant::now();
+    let (explanation, input_tokens, output_tokens) = send_completion(&client, endpoint, api_key.trim(), &request_body, MAX_RESPONSE_BYTES)?;
+    Ok(serde_json::json!({
+        "explanation":explanation, "provider":host, "model":model,
+        "latency_ms":started.elapsed().as_millis(), "input_tokens":input_tokens,
+        "output_tokens":output_tokens
+    }))
+}
+
+fn authorized_api_request(headers: &HeaderMap, token: &str) -> bool {
+    headers.get(header::AUTHORIZATION).and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .is_some_and(|candidate| constant_time_eq(candidate.as_bytes(), token.as_bytes()))
 }
 
 async fn handle_scan_socket(state: Arc<ApiState>, mut socket: WebSocket) {
@@ -442,10 +495,7 @@ async fn enforce_local_request(State(state): State<Arc<ApiState>>, request: Requ
 }
 
 async fn api_scan(State(state): State<Arc<ApiState>>, headers: HeaderMap, Json(input): Json<ScanRequest>) -> Response {
-    let authorized = headers.get(header::AUTHORIZATION).and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .is_some_and(|candidate| constant_time_eq(candidate.as_bytes(), state.token.as_bytes()));
-    if !authorized { return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error":"valid bearer token required"}))).into_response(); }
+    if !authorized_api_request(&headers, &state.token) { return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error":"valid bearer token required"}))).into_response(); }
     if input.path.is_empty() || input.path.len() > 4096 || input.path.contains('\0') {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"path must be between 1 and 4096 UTF-8 bytes"}))).into_response();
     }
@@ -1711,5 +1761,6 @@ mod gate_tests {
         assert!(build_pr_gate_result(&report(true, &[]), "urgent").is_err());
     }
 }
+
 
 

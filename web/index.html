@@ -15,7 +15,7 @@
 
       <div class="workspace-switcher">
         <span class="workspace-mark">S</span>
-        <span class="workspace-copy"><strong>Local workspace</strong><small>Personal environment</small></span>
+        <span class="workspace-copy"><strong id="workspaceTitle">Local workspace</strong><small id="workspaceSubtitle">Personal environment</small></span>
         <span class="chevron" aria-hidden="true">⌄</span>
       </div>
 
@@ -48,7 +48,7 @@
       <header class="topbar">
         <div class="breadcrumbs"><span>Workspace</span><b>/</b><strong id="breadcrumbCurrent">Overview</strong></div>
         <div class="topbar-actions">
-          <span class="local-badge"><i></i> LOCAL MODE</span>
+          <span class="local-badge"><i></i><span id="modeBadge">LOCAL MODE</span></span>
           <button class="icon-button" id="helpButton" type="button" aria-label="About this dashboard" title="About this dashboard">?</button>
           <div class="avatar" aria-label="Local user">M</div>
         </div>
@@ -59,7 +59,7 @@
           <div>
             <div class="eyebrow"><span class="eyebrow-line"></span> SECURITY OPERATIONS</div>
             <h1 id="pageTitle">Security overview</h1>
-            <p class="page-subtitle">Evidence-first findings from your local SecuTron scan.</p>
+            <p class="page-subtitle" id="pageSubtitle">Evidence-first findings from your local SecuTron scan.</p>
           </div>
           <div class="heading-actions">
             <span class="report-state" id="reportState"><i></i><span>Demo preview</span></span>
@@ -71,7 +71,7 @@
           </div>
         </div>
 
-        <details class="scanner-panel">
+        <details class="scanner-panel" id="scannerPanel">
           <summary><span><strong>Run a local scan</strong><small>Connect to the SecuTron loopback server</small></span><span class="scanner-panel-tag">LOCAL API</span></summary>
           <div class="scanner-fields">
             <label>Repository folder on the server machine<input id="scanPathInput" type="text" placeholder="C:\Projects\my-app" autocomplete="off" spellcheck="false"></label>
@@ -85,7 +85,7 @@
 
         <div class="hero-card">
           <div class="hero-copy">
-            <div class="hero-kicker"><span class="pulse-dot"></span> LOCAL REPOSITORY SCAN</div>
+            <div class="hero-kicker"><span class="pulse-dot"></span><span id="heroKicker">LOCAL REPOSITORY SCAN</span></div>
             <h2>See the evidence.<br><span>Know what to fix.</span></h2>
             <p>Review candidate risks with clear file locations, source-to-sink traces, and rule limitations.</p>
             <div class="hero-actions">
@@ -180,4 +180,5 @@
   <script src="app.js"></script>
 </body>
 </html>
+
 

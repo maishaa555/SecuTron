@@ -51,9 +51,10 @@ Each rule needs positive, negative, and edge-case fixtures before being called s
 
 ## Future interfaces
 
-The CLI and JSON contract remain the scanner interface. `secutron serve` hosts the browser UI and an authenticated `/api/scan` route that invokes the same CLI executable with an argument vector. It binds to loopback by default. An explicit `--public-origin` is required for non-loopback binds, and it must be a loopback origin pinned to the same port; Compose uses this with a host port published only on `127.0.0.1`. It has no persistence or tenancy, and the browser does not send reports to an external server. WebSocket streaming remains future work.
+The CLI and JSON contract remain the scanner interface. `secutron serve` hosts the browser UI, authenticated `/api/scan` and `/api/scan/stream` routes, and an opt-in `/api/explain` route. The stream reports scan lifecycle and measured duration; the explanation endpoint sends only a bounded, allowlisted finding to the configured HTTPS provider after a user clicks the dashboard action. It returns untrusted explanation text plus provider latency and token counts. The server binds to loopback by default. An explicit `--public-origin` is required for non-loopback binds, and it must be a loopback origin pinned to the same port; Compose uses this with a host port published only on `127.0.0.1`. It has no persistence or tenancy, and the browser does not send reports to an external server.
 
 ## Current input scope
 
 Python source files with case-insensitive `.py` extensions are parsed with Tree-sitter. `.env` and `.env.*` names are matched case-insensitively and handled by a separate line-based local secret check; they are not parsed as Python or sent to a model. Other configuration formats are not scanned yet.
+
 
