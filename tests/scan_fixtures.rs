@@ -164,6 +164,39 @@ fn loopback_dashboard_serves_ui_and_authenticates_scan_api() {
     assert_eq!(report["findings"].as_array().map(Vec::len), Some(0));
 }
 
+#[test]
+fn dashboard_explanation_api_fails_closed_when_provider_key_is_missing() {
+    let child = Command::new(env!("CARGO_BIN_EXE_secutron"))
+        .args(["serve", "--bind", "127.0.0.1:0"])
+        .env_remove("NEBIUS_API_KEY")
+        .env_remove("SECUTRON_API_BASE")
+        .env_remove("SECUTRON_MODEL")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("SecuTron server should start");
+    let mut child = ServerChild(child);
+    let stdout = child.0.stdout.take().unwrap();
+    let mut lines = BufReader::new(stdout).lines();
+    let dashboard_line = lines.next().unwrap().unwrap();
+    let token_line = lines.next().unwrap().unwrap();
+    let origin = dashboard_line.strip_prefix("SecuTron dashboard: ").and_then(|line| line.strip_suffix('/')).unwrap();
+    let token = token_line.strip_prefix("Local API bearer token (shown once; enter it in the dashboard): ").unwrap();
+    let client = reqwest::blocking::Client::builder().no_proxy().timeout(std::time::Duration::from_secs(5)).build().unwrap();
+    let finding = serde_json::json!({
+        "id":"test-finding", "rule_id":"PY.SQL.UNTRUSTED", "title":"SQL input",
+        "severity":"high", "confidence":0.9, "path":"app.py",
+        "start":{"line":1,"column":1}, "end":{"line":1,"column":2},
+        "message":"Request data may reach a query.", "evidence":[], "trace":[], "limitations":[]
+    });
+    let response = client.post(format!("{origin}/api/explain"))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&serde_json::json!({"finding":finding})).send().unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::BAD_GATEWAY);
+    let body: Value = response.json().unwrap();
+    assert_eq!(body["error"], "NEBIUS_API_KEY is not set");
+}
+
 #[tokio::test]
 async fn websocket_scan_stream_authenticates_and_reports_completion_telemetry() {
     use futures_util::{SinkExt, StreamExt};
@@ -232,6 +265,7 @@ fn server_requires_public_origin_to_be_loopback_and_same_port() {
         assert!(String::from_utf8_lossy(&output.stderr).contains("loopback origin"));
     }
 }
+
 
 
 

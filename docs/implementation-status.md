@@ -58,7 +58,8 @@ Nebius' current OpenAI-compatible API base URL and a Nemotron model identifier a
 
 ## Build and verification
 
-On 2026-10-29, the baseline Rust suite passed five provider unit tests and eight scanner/API integration tests. The current suite passes seven unit tests and ten integration tests, including WebSocket authentication and completion telemetry; `node --check web/app.js` and `git diff --check` pass. The two-run vulnerable-fixture benchmark measured one file, 26 non-empty lines, and 37.53 ms median process time (26.65 files/sec, 692.81 non-empty lines/sec) in this environment; these are smoke measurements, not portable performance claims. A local PR-gate smoke test returned `failure` for four high findings. Docker engine, live AI-provider, and sandbox validation remain unverified.
+On 2026-10-29, the baseline Rust suite passed five provider unit tests and eight scanner/API integration tests. The current suite passes seven unit tests and eleven integration tests, including WebSocket authentication/completion telemetry and the explanation API's missing-key fail-closed behavior; `node --check web/app.js` and `git diff --check` pass. The two-run vulnerable-fixture benchmark measured one file, 26 non-empty lines, and 37.53 ms median process time (26.65 files/sec, 692.81 non-empty lines/sec) in this environment; these are smoke measurements, not portable performance claims. A local PR-gate smoke test returned `failure` for four high findings. Docker engine, live AI-provider, and sandbox validation remain unverified.
+
 
 
 
