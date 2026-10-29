@@ -24,6 +24,12 @@ const DEMO_REPORT = {
 };
 
 const elements = {
+  scannerPanel: document.querySelector('#scannerPanel'),
+  modeBadge: document.querySelector('#modeBadge'),
+  workspaceTitle: document.querySelector('#workspaceTitle'),
+  workspaceSubtitle: document.querySelector('#workspaceSubtitle'),
+  pageSubtitle: document.querySelector('#pageSubtitle'),
+  heroKicker: document.querySelector('#heroKicker'),
   reportInput: document.querySelector('#reportInput'),
   scanPathInput: document.querySelector('#scanPathInput'),
   apiTokenInput: document.querySelector('#apiTokenInput'),
@@ -56,6 +62,21 @@ const elements = {
 };
 
 const state = { report: DEMO_REPORT, origin: 'Demo preview', reportName: null, reportMode: 'demo', filter: 'all', search: '', selected: null, toastTimer: null };
+
+function configureHostingMode() {
+  const loopbackHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+  const localServer = location.protocol !== 'file:' && loopbackHosts.has(location.hostname);
+  if (localServer) return;
+
+  elements.scannerPanel.hidden = true;
+  elements.modeBadge.textContent = 'HOSTED REPORT VIEWER';
+  elements.workspaceTitle.textContent = 'Hosted dashboard';
+  elements.workspaceSubtitle.textContent = 'Report review only';
+  elements.pageSubtitle.textContent = 'Import a SecuTron JSON report to review findings. Scans run on your own machine.';
+  elements.heroKicker.textContent = 'LOCAL SCANS · HOSTED REVIEW';
+  document.querySelector('.sidebar-bottom p').textContent = 'Imported reports stay in this browser. Source code is not uploaded.';
+  document.querySelector('.privacy-indicator').lastChild.textContent = ' BROWSER ONLY';
+}
 
 function textNode(tag, className, text) {
   const node = document.createElement(tag);
@@ -436,4 +457,5 @@ document.querySelectorAll('[data-view]').forEach(button => button.addEventListen
 document.querySelector('#helpButton').addEventListener('click', () => showToast('Demo preview is illustrative. Import a SecuTron JSON report to inspect real scan results.'));
 
 renderRules();
+configureHostingMode();
 render();
